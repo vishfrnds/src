@@ -1,0 +1,6 @@
+weights/
+venv/
+.cog
+__pycache__
+.python-version
+

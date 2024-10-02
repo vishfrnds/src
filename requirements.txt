@@ -1,0 +1,5 @@
+transformers
+huggingface_hub
+tiktoken
+blobfile
+git+https://github.com/tinygrad/tinygrad
