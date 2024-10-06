@@ -1,5 +1,7 @@
-transformers
 huggingface_hub
 tiktoken
 blobfile
+mypy # for dev
+transformers # for tests
+vastai # for cloud deployment
 git+https://github.com/tinygrad/tinygrad
