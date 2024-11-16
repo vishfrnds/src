@@ -4,4 +4,12 @@ blobfile
 mypy # for dev
 transformers # for tests
 vastai # for cloud deployment
-git+https://github.com/tinygrad/tinygrad
+llvmlite # for local deployment in ram
+numpy
+pandas
+matplotlib
+seaborn
+kaggle
+tensorboard
+#git+https://github.com/tinygrad/tinygrad
+-e src/tinygrad --config-settings editable_mode=compat

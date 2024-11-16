@@ -5,15 +5,15 @@
 from dataclasses import dataclass
 from typing import Callable, Union
 
-import attention
 import numpy as np
-import rope
-from norm import RMSNorm
-from tinygrad import nn
+from tinygrad import Variable, nn
 from tinygrad.engine.jit import TinyJit
 from tinygrad.nn import Linear
-from tinygrad.shape.symbolic import Variable
 from tinygrad.tensor import Tensor
+
+from models.layers.attention import SelfAttention
+from models.layers.norm import RMSNorm
+from models.layers.position_embedding import PositionEmbedding
 
 
 class FeedForward:
@@ -36,16 +36,15 @@ class FeedForward:
 
 
 class TransformerBlock:
-  def __init__(self, dim, n_heads, n_kv_heads, hidden_dim, norm_eps):
-    self.attention = attention.SelfAttention(dim, n_heads, n_kv_heads)
+  def __init__(self, dim: int, n_heads: int, n_kv_heads: int, hidden_dim: int, norm_eps: float):
+    self.attention = SelfAttention(dim, n_heads, n_kv_heads)
     self.feed_forward = FeedForward(dim, hidden_dim)
     self.attention_norm = RMSNorm(dim, norm_eps)
     self.ffn_norm = RMSNorm(dim, norm_eps)
 
-  def __call__(self, x: Tensor, start_pos: Union[Variable, int], freqs_cis: Tensor):
-    h = x + self.attention(self.attention_norm(x), start_pos, freqs_cis)
+  def __call__(self, x: Tensor, start_pos: int, positional_embedding: PositionEmbedding):
+    h = x + self.attention(self.attention_norm(x), start_pos, positional_embedding)
     return h + self.feed_forward(self.ffn_norm(h))
-
 
 selector: Callable[[Tensor], Tensor] = lambda x: x.argmax(-1, keepdim=True)
 
@@ -71,48 +70,61 @@ class Explorer:
     return logits.argmax(-1, keepdim=True)
 
 
+@dataclass
+class TransformerConfig:
+  dim: int
+  hidden_dim: int
+  n_heads: int
+  n_layers: int
+  norm_eps: float
+  vocab_size: int
+  n_kv_heads: int
+  rope_theta: float
+  max_seq_len: int
+  use_scaled_rope: bool
+
+
 class Transformer:
 
-  @dataclass
-  class Config:
-    dim: int
-    hidden_dim: int
-    n_heads: int
-    n_layers: int
-    norm_eps: float
-    vocab_size: int
-    n_kv_heads: int
-    rope_theta: float
-    max_seq_len: int
-
-  def __init__(self, config: Config, selector=selector):
+  def __init__(self, config: TransformerConfig, selector=selector):
+    self.config = config
     self.layers = [TransformerBlock(config.dim, config.n_heads, n_kv_heads=config.n_kv_heads, norm_eps=config.norm_eps,
                                     hidden_dim=config.hidden_dim) for _ in range(config.n_layers)]
     self.norm = nn.RMSNorm(config.dim, config.norm_eps)
     print('vocab_size', config.vocab_size, 'dim', config.dim)
     self.tok_embeddings = nn.Embedding(config.vocab_size, config.dim)
     self.output = nn.Linear(config.dim, config.vocab_size, bias=False)  # weight of shape: vocab_size, dim
-    # self.freqs_cos, self.freq_sin = rope.precompute_freqs_cis(dim // n_heads, max_seq_len * 2, rope_theta)
-    self.freqs_cis = rope.precompute_freqs_cis(config.dim // config.n_heads, config.max_seq_len, config.rope_theta)
-    self.max_context = 5000
+    self.max_context = config.max_seq_len
     self.selector = Explorer()
+    self.params_built = False
+
+  # things to set after loading the weights, as they are not saved but build before model starts
+  def build_params(self):
+    self.positional_embedding = PositionEmbedding(self.config.dim, self.config.n_heads,
+                                                  self.config.max_seq_len, self.config.rope_theta, self.config.use_scaled_rope)
+    self.params_built = True
 
   @TinyJit
-  def predicting_one_token(self, tokens: Tensor, start_pos: int) -> Tensor:
-    return self.predicting_multiple_tokens(tokens, start_pos, 1)
-
-  def predicting_multiple_tokens(self, tokens: Tensor, start_pos: int, seq_len: int) -> Tensor:
-    freqs_cis = self.freqs_cis.shrink((None, (start_pos, start_pos + seq_len), None, None, None))
+  def predicting_one_token(self, tokens: Tensor, start_pos: Variable) -> Tensor:
     h = self.tok_embeddings(tokens).realize()
     for layer in self.layers:
-      h = layer(h, start_pos, freqs_cis).realize()
+        h = layer(h, start_pos, self.positional_embedding).realize()
+    logits = self.output(self.norm(h))
+    return self.selector(logits[:, -1]).realize()
+
+  def predicting_multiple_tokens(self, tokens: Tensor, start_pos: int) -> Tensor:
+    h = self.tok_embeddings(tokens).realize()
+    for layer in self.layers:
+      h = layer(h, start_pos, self.positional_embedding).realize()
     logits = self.output(self.norm(h))
     return self.selector(logits[:, -1]).realize()
 
   def __call__(self, tokens: Tensor, start_pos: int) -> Tensor:
+    if not hasattr(self, "positional_embedding"):
+      self.build_params()
+
     _bsz, seqlen = tokens.shape
     if start_pos > 0 and seqlen == 1:
-      # start pos > 0 so cache is created, # TODO move cache creation in init and remove this conidtion
-      return self.predicting_one_token(tokens, Variable("start_pos", 1, self.max_context).bind(
-          start_pos))
-    return self.predicting_multiple_tokens(tokens, start_pos, int(seqlen))
+      # start pos > 0 so cache is created, # TODO move cache creation in init and remove this condition
+      return self.predicting_one_token(tokens, Variable("start_pos", 1, self.max_context).bind(start_pos))
+    return self.predicting_multiple_tokens(tokens, start_pos)

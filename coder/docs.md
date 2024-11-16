@@ -1,10 +1,15 @@
 # Products
 ## Apps
    * https://bolt.new/
+   * https://aider.chat/docs/git.html
+   * https://cursor.ai/
+   * https://lightning.ai/
 
 
 # Source
    * https://github.com/Doriandarko/o1-engineer/blob/main/o1-eng.py nice prompts.
+   * https://github.com/clinebot/cline
+   * https://github.com/yetone/avante.nvim
 
 
 

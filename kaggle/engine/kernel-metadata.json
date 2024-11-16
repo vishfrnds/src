@@ -1,0 +1,19 @@
+{
+  "id": "vishfrnds/engine",
+  "id_no": 49413574,
+  "title": "engine",
+  "code_file": "src/layers/engine.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "keywords": [
+    "utility script"
+  ],
+  "dataset_sources": [],
+  "kernel_sources": [],
+  "competition_sources": [],
+  "model_sources": []
+}

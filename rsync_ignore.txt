@@ -1,0 +1,7 @@
+venv/
+tinygrad/
+weights/
+docs/
+coder/
+.git/
+__pycache__/

@@ -1,6 +1,7 @@
+import os
+from pathlib import Path
 from typing import (
     AbstractSet,
-    cast,
     Collection,
     Dict,
     Iterator,
@@ -9,11 +10,13 @@ from typing import (
     Optional,
     Sequence,
     Union,
+    cast,
 )
-from pathlib import Path
-import os
+
 import tiktoken
 from tiktoken.load import load_tiktoken_bpe
+
+from models.language_models import Tokenizer
 
 # Can be improved a lot by reading those tokenizer files instead of hardcoding values here.
 
@@ -68,7 +71,7 @@ MAX_NO_WHITESPACES_CHARS = 25_000
 
 
 # https://github.com/karpathy/nano-llama31/blob/master/tokenizer.py
-class LlamaTokenizer3_1:
+class LlamaTokenizer3_1(Tokenizer):
     """ Converts List[int] <-> str """
 
     special_tokens: Dict[str, int]
@@ -126,8 +129,8 @@ class LlamaTokenizer3_1:
         self,
         s: str,
         *,
-        bos: bool,
-        eos: bool,
+        bos: bool = True,
+        eos: bool = False,
         allowed_special: Optional[Union[Literal["all"], AbstractSet[str]]] = None,
         disallowed_special: Union[Literal["all"], Collection[str]] = (),
     ) -> List[int]:
@@ -178,9 +181,9 @@ class LlamaTokenizer3_1:
             t.append(self.eos_id)
         return t
 
-    def decode(self, t: Sequence[int]) -> str:
+    def decode(self, t: int) -> str:
         # Typecast is safe here. Tiktoken doesn't do anything list-related with the sequence.
-        return self.model.decode(cast(List[int], t))
+        return self.model.decode([t])
 
     @staticmethod
     def _split_whitespaces_or_nonwhitespaces(

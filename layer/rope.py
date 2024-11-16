@@ -3,8 +3,8 @@
 # implemetation matching https://github.com/facebookresearch/llama/blob/main/llama/model.py
 from typing import Tuple
 
-from tinygrad import Tensor, dtypes
-
+from tinygrad.dtype import dtypes
+from tinygrad.tensor import Tensor
 
 # def precompute_freqs_cis(head_dim: int, max_seq_len: int, rope_theta) -> Tuple[Tensor, Tensor]:
 #   theta: float = rope_theta
@@ -42,30 +42,3 @@ from tinygrad import Tensor, dtypes
 # def apply_rotary_emb(vectors: Tuple[Tensor, ...], freqs_cos, freqs_sin) -> Tuple[Tensor, ...]:
 #   # return tuple of vector by applying rotary embedding to each vector in vectors
 #   return tuple(apply_rotary_emb_single_vector(vector, freqs_cos, freqs_sin) for vector in vectors)
-
-
-# https://github.com/facebookresearch/llama/blob/1076b9c51c77ad06e9d7ba8a4c6df775741732bd/llama/model.py#L47
-def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0) -> Tensor:
-  freqs = 1.0 / (theta ** (Tensor.arange(0, dim, 2, dtype=dtypes.default_float)[:(dim // 2)] / dim))
-  freqs = Tensor.arange(end).unsqueeze(dim=1) * freqs.unsqueeze(dim=0)
-  return Tensor.stack(freqs.cos().half(), freqs.sin().half(), dim=-1).reshape(1, end, 1, dim // 2, 2)
-
-
-def complex_mult(A, c, d):
-  # (a+i*b) * (c+i*d) = (ac-bd) + i*(ad+bc)
-  a, b = A[:, :, :, :, 0:1], A[:, :, :, :, 1:2]
-  ro = a * c - b * d
-  co = a * d + b * c
-  return ro.cat(co, dim=-1)
-
-
-def apply_rotary_emb(xq, xk, freqs_cis) -> Tuple[Tensor, Tensor]:
-  assert freqs_cis.shape[1] == xq.shape[1] and freqs_cis.shape[1] == xk.shape[
-    1], f"freqs_cis shape mismatch {freqs_cis.shape} xq:{xq.shape} xk:{xk.shape}"
-  xq = xq.reshape(*xq.shape[0:-1], -1, 2)
-  xk = xk.reshape(*xk.shape[0:-1], -1, 2)
-  assert len(xq.shape) == 5 and len(xk.shape) == 5 and len(freqs_cis.shape) == 5
-  c, d = freqs_cis[:, :xq.shape[1], :, :, 0:1], freqs_cis[:, :xq.shape[1], :, :, 1:2]
-  xq_out = complex_mult(xq, c, d)
-  xk_out = complex_mult(xk, c, d)
-  return xq_out.flatten(3).half(), xk_out.flatten(3).half()
