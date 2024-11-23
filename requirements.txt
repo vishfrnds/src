@@ -11,5 +11,6 @@ matplotlib
 seaborn
 kaggle
 tensorboard
+torch
 #git+https://github.com/tinygrad/tinygrad
 -e src/tinygrad --config-settings editable_mode=compat

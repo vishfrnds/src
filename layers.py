@@ -1,10 +1,11 @@
 import math
-from typing import Optional
+from typing import Optional, Tuple
 
 import tinygrad.nn as nn
 from src.layer.nonlinear import NonLinear
 from src.logger import logger
-from tinygrad.tensor import Tensor
+from tinygrad.engine.lazy import LazyBuffer
+from tinygrad.tensor import Function, Tensor
 
 
 class MLP:
@@ -16,6 +17,50 @@ class MLP:
   def __call__(self, x: Tensor):
     x = (self.linear1(x)).gelu().dropout(0.1)
     return self.linear2(x)
+
+class SelfAttention:
+  def __init__(self, input_dim: int, heads: int):
+    self.input_dim = input_dim
+    self.heads = heads
+
+    self.query = nn.Linear(input_dim, input_dim * heads)
+    self.key = nn.Linear(input_dim, input_dim * heads)
+    self.value = nn.Linear(input_dim, input_dim * heads)
+    self.token_output = nn.Linear(input_dim * heads, input_dim)
+    self.position_output = nn.Linear(input_dim * heads, input_dim)
+
+    self.pos_proj = nn.Linear(input_dim*2, input_dim * heads)  # New projection for positions
+
+
+  def __call__(self, tokens: Tensor, positions: Tensor, key_mask: Optional[Tensor] = None) -> Tuple[Tensor, Tensor]:
+    extra_dim, seq_len, input_dim = tokens.shape[:-2], tokens.shape[-2], tokens.shape[-1]
+    assert input_dim == self.input_dim
+
+    # Linear projections and split into heads
+    q = self.query(tokens).reshape(*extra_dim, seq_len, self.heads, self.input_dim).transpose(1, 2)
+    k = self.key(tokens).reshape(*extra_dim, seq_len, self.heads, self.input_dim).transpose(1, 2)
+    positions1 = positions.reshape(*extra_dim, seq_len, 1, self.input_dim).repeat(*[1] * len(extra_dim), 1, seq_len, 1)
+    positions2 = positions.reshape(*extra_dim, 1, seq_len, self.input_dim).repeat(*[1] * len(extra_dim), seq_len, 1, 1)
+    print('positions1', positions1.shape)
+    print('positions2', positions2.shape)
+    relative_position = positions1.cat(positions2, dim=-1)
+    print('relative_position', relative_position.shape)
+    relative_position = self.pos_proj(relative_position).reshape(*extra_dim, seq_len, seq_len, self.heads, self.input_dim).transpose(1, 2).layernorm(axis=-1)
+    print('relative_position', relative_position.shape)
+    print(q.matmul(k.transpose(-2, -1)).shape)
+    attention = (q.matmul(k.transpose(-2, -1)) + relative_position) / math.sqrt(self.input_dim)
+    if key_mask is not None:
+      key_mask = key_mask.reshape(batch_size, 1, 1, seq_len)  # batch, 1 (heads), 1 (seq_len), seq_len
+      attention = attention + key_mask.where(0, -float('inf'))
+    attention = attention.softmax(axis=-1).dropout(0.1)
+    v = self.value(tokens).reshape(*extra_dim, seq_len, self.heads, self.input_dim).transpose(1, 2).layernorm(axis=-1)
+    v = attention.matmul(v)
+    position = self.position_output(relative_position).reshape(*extra_dim, seq_len, self.heads, self.input_dim).transpose(1, 2).layernorm(axis=-1)
+    position = attention.matmul(position)
+    # Combine heads
+    v = v + v.transpose(1, 2).reshape(*extra_dim, seq_len, self.input_dim * self.heads).dropout()
+    position = position + position.transpose(1, 2).reshape(*extra_dim, seq_len, self.input_dim * self.heads).dropout()
+    return v, position
 
 class AttentionLayer:
   def __init__(self, input_dim: int, heads: int):
@@ -77,3 +122,17 @@ class AttentionLayers:
         logger.add(f'out/{name}/key_tokens_{i}', key_tokens)
         logger.add(f'out/{name}/query_tokens_{i}', query_tokens)
     return query_tokens
+
+
+
+
+
+# ***** Functions ***** #
+class GradientChoker(Function):
+  def forward(self, x: LazyBuffer, level: int) -> LazyBuffer:
+    self.x = x
+    self.level = level
+    return x
+
+  def backward(self, grad_output: LazyBuffer) -> LazyBuffer:
+    return grad_output.div(math.e ** self.level)

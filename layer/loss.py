@@ -1,6 +1,6 @@
 from typing import Optional, cast
 
-from src.layer.logger import logger
+from src.logger import logger
 from tinygrad.tensor import Tensor
 
 

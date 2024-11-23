@@ -3,23 +3,21 @@
 import argparse
 import sys
 
-from tinygrad.nn.state import load_state_dict
-
 from models.hub.model_config import ModelConfig, ModelEnum
 from models.hub.tokenizer import LlamaTokenizer3_1
 from models.language_models import LanguageModel
-from models.layers.transformer import Transformer
+from src.layer.transformer import Transformer
+from tinygrad.nn.state import load_state_dict
 
 sys.settrace(None)
 
 
+
 class Llama(LanguageModel):
   def __init__(self, hub_model: ModelConfig):
-    model = Transformer(hub_model.config)
-    load_state_dict(model, hub_model.load_model(), strict=False, consume=True)
     # need to create tokenizer once model is downloaded as it downloads the tokenizer too
     tokenizer = LlamaTokenizer3_1(hub_model.get_tokenizer_path())
-    super().__init__(model, tokenizer)
+    super().__init__(hub_model.load_model(), tokenizer)
 
   def process(self):
     input = 'Hello, how are you?'

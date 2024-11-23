@@ -5,10 +5,9 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Generator, List, Union
 
+from src.layer.transformer import Transformer
 from tinygrad.dtype import dtypes
 from tinygrad.tensor import Tensor
-
-from models.layers.transformer import Transformer
 
 
 class Speaker(Enum):
@@ -65,7 +64,7 @@ class LanguageModel:  # this is generic language model, and leaves individual mo
     length = len(tokens)
     for _ in range(500):
       x = self.model(x, self.start_pos)
-      print(x)
+      # print(x)
       self.start_pos += length
       length = 1
       op: int = int(x.item())
