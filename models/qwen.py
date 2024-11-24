@@ -1,4 +1,5 @@
 import argparse
+import traceback
 
 from transformers import AutoTokenizer
 
@@ -38,10 +39,16 @@ class Qwen(LanguageModel):
   def process(self):
     input_text = "#write a quick sort algorithm"
     output_stream = super().process(input_text)
-    print(''.join(output_stream))
+    for op in output_stream:
+      print(op, end='', flush=True)
+
 
 if __name__ == '__main__':
-  parser = argparse.ArgumentParser()
-  parser.add_argument('--model', type=ModelEnum, default=ModelEnum.QWEN_0_5B, choices=list(ModelEnum))
-  args = parser.parse_args()
-  Qwen(args.model.value).process()
+  try:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model', type=ModelEnum, default=ModelEnum.QWEN_0_5B, choices=list(ModelEnum))
+    args = parser.parse_args()
+    Qwen(args.model.value).process()
+  except Exception as e:
+    print(e)
+    traceback.print_exc()

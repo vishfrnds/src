@@ -1,4 +1,5 @@
 from src.layer.position_embedding import PositionEmbedding
+from tinygrad.dtype import dtypes
 from tinygrad.nn import Linear
 from tinygrad.tensor import Tensor
 
@@ -24,7 +25,7 @@ class SelfAttention:
     self.cache_kv = None
 
   def create_cache(self, bsz: int):
-    self.cache_kv = Tensor.zeros(2, bsz, self.max_context, self.n_kv_heads, self.head_dim, requires_grad=False).contiguous().realize()
+    self.cache_kv = Tensor.zeros(2, bsz, self.max_context, self.n_kv_heads, self.head_dim, requires_grad=False, dtype=dtypes.float16).contiguous().realize()
 
   @staticmethod
   def repeat_kv(x: Tensor, n_rep: int) -> Tensor:
@@ -48,7 +49,7 @@ class SelfAttention:
 
     # print(self.cache_kv.dtype, x.dtype, xk.dtype, xv.dtype, self.wv.weight.dtype, self.wk.weight.dtype)
     # print(self.cache_kv.device, x.device, xk.device, xv.device, self.wv.weight.device, self.wk.weight.device)
-    self.cache_kv.shrink((None, None, (start_pos, start_pos + seq_len), None, None)).assign(Tensor.stack(xk, xv)).realize()
+    self.cache_kv.shrink((None, None, (start_pos, start_pos + seq_len), None, None)).assign(Tensor.stack(xk, xv).cast(dtypes.float16)).realize()
     keys = self.cache_kv[0].shrink((None, (0, start_pos + seq_len), None, None))
     values = self.cache_kv[1].shrink((None, (0, start_pos + seq_len), None, None))
 

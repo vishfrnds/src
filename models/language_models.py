@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import abstractmethod
 from dataclasses import dataclass
 from enum import Enum
+from time import time
 from typing import Generator, List, Union
 
 from src.layer.transformer import Transformer
@@ -63,14 +64,16 @@ class LanguageModel:  # this is generic language model, and leaves individual mo
     x = Tensor([tokens], dtype=dtypes.int32)
     length = len(tokens)
     for _ in range(500):
+      start = time()
       x = self.model(x, self.start_pos)
       # print(x)
       self.start_pos += length
       length = 1
       op: int = int(x.item())
+      end = time()
       self.conversation.add_node([op], Speaker.ASSISTANT)
       str_op = self.tokenizer.decode([op])
-      print(str_op)
+      # print(str_op)
       if str_op:
         yield str_op
       else:

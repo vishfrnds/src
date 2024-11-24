@@ -16,7 +16,7 @@ from typing import (
 import tiktoken
 from tiktoken.load import load_tiktoken_bpe
 
-from models.language_models import Tokenizer
+from src.models.language_models import Tokenizer
 
 # Can be improved a lot by reading those tokenizer files instead of hardcoding values here.
 

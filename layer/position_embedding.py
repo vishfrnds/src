@@ -68,19 +68,9 @@ class PositionEmbedding:
   # There two options to rotate indexes we can rotate:
   # [0, 1, 2, ..., d/2] [d/2+1, d/2+2, ..., d]
   # or [0, 2, 4, ..., d] [1, 3, 5, ..., d-1]
-  # qwen is doing first
+  # qwen, llama is doing first
   # Todo parametrize this for different models
   def apply_rotary_emb(freqs_cis: Tensor, xq: Tensor, xk: Tensor) -> Tuple[Tensor, Tensor]:
-    # Most probably not needed, as shrink is view and its calculation should be cached already
-    # def get_cached_freqs_cis() -> Tensor:
-    #   # print(self.cache, start_pos, seq_len)
-    #   if self.cache is None or self.cache[0] != start_pos or self.cache[1] != seq_len:
-    #     freqs_cis = self.freqs_cis.shrink((None, (start_pos, start_pos + seq_len), None, None, None))
-    #     self.cache = (start_pos, seq_len, freqs_cis)
-    #   return self.cache[2]
-
-    # freqs_cis = get_cached_freqs_cis()
-    # freqs_cis = self.freqs_cis.shrink((None, (start_pos, start_pos + seq_len), None, None, None))
     dtype = xq.dtype
     # assert freqs_cis.shape[1] == xq.shape[1], f"freqs_cis shape mismatch {freqs_cis.shape} xq:{xq.shape} xk:{xk.shape}"
     xq = xq.reshape(*xq.shape[0:-1], 2, -1)
@@ -91,14 +81,3 @@ class PositionEmbedding:
     xq_out = PositionEmbedding.complex_mul(xq, cos, sin)
     xk_out = PositionEmbedding.complex_mul(xk, cos, sin)
     return xq_out.flatten(3).cast(dtype), xk_out.flatten(3).cast(dtype)
-
-
-# from models.hub.model_config import ModelEnum
-# params = ModelEnum.LLAMA_1B.value.config
-
-# print(PositionEmbedding.precompute_freqs_cis(
-#     params.dim // params.n_heads,
-#     params.max_seq_len * 2,
-#     params.rope_theta,
-#     params.use_scaled_rope,
-# ))

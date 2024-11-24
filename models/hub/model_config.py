@@ -55,19 +55,12 @@ class ModelConfig:
       # print(k, v.shape)
       if ".rotary_emb." in k:
         continue
-      # TODO: This should work with LLVM, but it doesn't, see test in cpu_half_test.py.
-      # check if gpu is available
-      if Device.DEFAULT not in ["CUDA", "NV"]:
-        v = v.to("CLANG").realize()
-        if v.dtype == dtypes.bfloat16:
-          # v = v.llvm_bf16_cast(dtypes.float16).realize()
-          v = v.bitcast(dtypes.uint16).cast(dtypes.uint32).mul(1 << 16).bitcast(dtypes.float32).cast(dtypes.float32).realize()
-
       if "model.layers" in k and not 'bias' in k:
         if "q_proj" in k:
           v = permute(v, n_heads)
         elif "k_proj" in k:
           v = permute(v, n_kv_heads)
+      assert v.dtype != dtypes.bfloat16, f"bfloat16 found in {k}"
       sd[keymap[k]] = v
     return sd
 
@@ -76,10 +69,10 @@ class ModelConfig:
       # check if gpu is available
     for k, v in weights.items():
       if Device.DEFAULT not in ["CUDA", "NV"]:
-        # v = v.to("CLANG").realize()
+        v = v.to("CLANG").realize()
         if v.dtype == dtypes.bfloat16:
-          v = v.llvm_bf16_cast(dtypes.float32).realize()
-          # v = v.bitcast(dtypes.uint16).cast(dtypes.uint32).mul(1 << 16).bitcast(dtypes.float32).cast(dtypes.float32).realize()
+          # v = v.llvm_bf16_cast(dtypes.float16).realize()
+          weights[k] = v.bitcast(dtypes.uint16).cast(dtypes.uint32).mul(1 << 16).bitcast(dtypes.float32).cast(dtypes.default_float).realize()
 
     return weights
 
@@ -126,10 +119,11 @@ class ModelEnum(Enum):
       vocab_size=128256,
       n_kv_heads=8,
       rope_theta=500000.0,
-      max_seq_len=4096,
+      max_seq_len=8192,
       use_scaled_rope=True,
-      tie_embeddings=False,
+      tie_embeddings=True,
       attention_bias=False,
+      activation=ActivationEnum.SILU
     )
   )
   QWEN_0_5B = ModelConfig(
