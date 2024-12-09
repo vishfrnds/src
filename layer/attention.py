@@ -50,8 +50,8 @@ class SelfAttention:
     # print(self.cache_kv.dtype, x.dtype, xk.dtype, xv.dtype, self.wv.weight.dtype, self.wk.weight.dtype)
     # print(self.cache_kv.device, x.device, xk.device, xv.device, self.wv.weight.device, self.wk.weight.device)
     self.cache_kv.shrink((None, None, (start_pos, start_pos + seq_len), None, None)).assign(Tensor.stack(xk, xv).cast(dtypes.float16)).realize()
-    keys = self.cache_kv[0].shrink((None, (0, start_pos + seq_len), None, None))
-    values = self.cache_kv[1].shrink((None, (0, start_pos + seq_len), None, None))
+    keys = self.cache_kv[0].shrink((None, (0, start_pos + seq_len), None, None)).realize()
+    values = self.cache_kv[1].shrink((None, (0, start_pos + seq_len), None, None)).realize()
 
     # update the cache
     # we can not update with cache = ... As this does not work in jit mode hence need to introduce max_context

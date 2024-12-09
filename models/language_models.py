@@ -25,7 +25,6 @@ class ConversationTree:
     parent: int
     children: List[int]
     data: List[int]
-    speaker: Speaker
 
   def __init__(self):
     self.trees: List[ConversationTree.Node] = []
@@ -39,19 +38,22 @@ class ConversationTree:
     return child_id
 
 
-class Tokenizer:
-  @abstractmethod
-  def encode(self, inp: str) -> List[int]:
-    pass
+class BaseTokenizer:
+  def __init__(self, dir_path: str):
+    self.dir_path = dir_path
 
   @abstractmethod
-  def decode(self, token: int) -> Union[str, None]:
-    pass
+  def input_to_tokens(self, inp: str) -> List[int]:
+    raise NotImplementedError
+
+  @abstractmethod
+  def token_to_string(self, token: int) -> Union[str, None]:
+    raise NotImplementedError
 
 
 class LanguageModel:  # this is generic language model, and leaves individual models to be implemented
 
-  def __init__(self, model: Transformer, tokenizer: Tokenizer):
+  def __init__(self, model: Transformer, tokenizer: BaseTokenizer):
     self.model = model
     self.start_pos: int = 0
     self.conversation = ConversationTree()
@@ -59,22 +61,43 @@ class LanguageModel:  # this is generic language model, and leaves individual mo
     Tensor.no_grad = True
 
   def process(self, inp: str) -> Generator[str, None, None]:
-    tokens = self.tokenizer.encode(inp)
-    self.conversation.add_node(tokens, Speaker.USER)
+    tokens = self.tokenizer.input_to_tokens(inp)
+    # self.conversation.add_node(tokens, Speaker.USER)
     x = Tensor([tokens], dtype=dtypes.int32)
-    length = len(tokens)
-    for _ in range(500):
-      start = time()
-      x = self.model(x, self.start_pos)
-      # print(x)
-      self.start_pos += length
-      length = 1
-      op: int = int(x.item())
-      end = time()
-      self.conversation.add_node([op], Speaker.ASSISTANT)
-      str_op = self.tokenizer.decode([op])
-      # print(str_op)
+    x = self.model(x, self.start_pos)
+    self.start_pos += len(tokens)
+    while True:
+      op: List[int] = x.tolist()[0]
+      x = x[:, -1:]
+      self.start_pos += len(op)
+      # print('op', op)
+      # self.conversation.add_node([op], Speaker.ASSISTANT)
+      str_op = ''.join([self.tokenizer.token_to_string(o) for o in op])
       if str_op:
         yield str_op
       else:
+        break
+      # print(f'x {x.tolist()} start_pos {self.start_pos}')
+      x = self.model(x, self.start_pos)
+      start = time()
+
+  def run(self):
+    print("Welcome to the chat bot! Press Ctrl+Enter to send a message.")
+    while True:
+      try:
+        user_input = ""
+        while True:
+          line = input()
+          if line == "":
+            break
+          user_input += line + "\n"
+        
+        print("User: " + user_input)
+        bot_output = self.process(user_input)
+        print("Assistant: ", end="")
+        for output in bot_output:
+          print(output, end="", flush=True)
+        print()
+      except KeyboardInterrupt:
+        print("\nExiting chat bot. Goodbye!")
         break

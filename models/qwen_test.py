@@ -5,8 +5,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, Qwen2ForCausalLM
 from transformers.models.qwen2.modeling_qwen2 import apply_rotary_pos_emb
 
 import tinygrad
-from src.models.hub.model_config import ModelEnum
-from src.models.qwen import Qwen
+from src.models.model_config import ModelEnum
 from tinygrad.dtype import dtypes
 
 
@@ -15,19 +14,22 @@ class TestQwenModel(unittest.TestCase):
   @classmethod
   def setUpClass(cls):
     print('Device.DEFAULT', tinygrad.Device.DEFAULT)
-    tinygrad.dtypes.default_float = dtypes.float32
+    tinygrad.dtypes.default_float = dtypes.float16
     # tinygrad.Device.DEFAULT = "CLANG"
     input_text = "#write a quick sort algorithm"
 
-    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-Coder-0.5B")
-    cls.hub_model: Qwen2ForCausalLM = AutoModelForCausalLM.from_pretrained("Qwen/Qwen2.5-Coder-0.5B", device_map="cpu", torch_dtype=torch.float32).eval()
-    cls.hub_model_inputs = tokenizer([input_text], return_tensors="pt").to('cpu').input_ids
 
     # Load tinygrad implmentation
-    qwen = Qwen(ModelEnum.QWEN_0_5B.value)
+    qwen = ModelEnum.QWEN_0_5B.value.create_language_model()
     cls.tiny_model = qwen.model
-    cls.tiny_input = tinygrad.Tensor([qwen.tokenizer.encode(input_text)])
+    cls.tiny_input = tinygrad.Tensor([qwen.tokenizer.input_to_tokens(input_text)])
     cls.tiny_model.initialize_cache_if_needed(bsz=1)
+
+    dir_path = ModelEnum.QWEN_0_5B.value.get_dir_path()
+    tokenizer = AutoTokenizer.from_pretrained(ModelEnum.QWEN_0_5B.value.get_dir_path())
+    cls.hub_model: Qwen2ForCausalLM = AutoModelForCausalLM.from_pretrained(dir_path, device_map="cpu", torch_dtype=torch.float16).eval()
+    cls.hub_model_inputs = tokenizer([input_text], return_tensors="pt").to('cpu').input_ids
+
 
   @staticmethod
   def unnest(nested_list):
@@ -63,6 +65,7 @@ class TestQwenModel(unittest.TestCase):
     # self.assert_close(hub, hub_hidden_states[0], 'embed_tokens')
     tiny = self.tiny_model.tok_embeddings(self.tiny_input)
     self.assert_close(tiny, hub_hidden_states[0], 'tok_embeddings')
+    print('vish', self.tiny_model.layers[0].attention.wq.weight)
 
     self.assert_close(self.tiny_model.layers[0].attention.wq.weight, self.hub_model.model.layers[0].self_attn.q_proj.weight, 'q_proj')
     self.assert_close(self.tiny_model.layers[0].attention.wq.bias, self.hub_model.model.layers[0].self_attn.q_proj.bias, 'q_proj_bias')
@@ -96,14 +99,14 @@ class TestQwenModel(unittest.TestCase):
   def test_second_call(self):
     eos_token_ids = [151664, 151662, 151659, 151660, 151661, 151662, 151663, 151664, 151645, 151643]
     hub_generate_ids = self.hub_model.generate(self.hub_model_inputs, max_length=11, eos_token_id=eos_token_ids, do_sample=False)
-    tiny_output = []
-    tiny_output.append(self.tiny_model(self.tiny_input, 0))
+    tiny_output = self.tiny_model(self.tiny_input, 0)[0].data()
+    print(tiny_output)
     start_pos = self.tiny_input.shape[1]
-    assert tiny_output[-1].item() == hub_generate_ids[0][start_pos].item(), f'first_output {tiny_output[0].item()} {hub_generate_ids[0][start_pos].item()}'
+    assert tiny_output[-1] == hub_generate_ids[0][start_pos].item(), f'first_output {tiny_output[0].item()} {hub_generate_ids[0][start_pos].item()}'
     for _ in range(10):
       start_pos += 1
-      tiny_output.append(self.tiny_model(tiny_output[-1], start_pos))
-      assert tiny_output[-1].item() == hub_generate_ids[0][start_pos].item(), f'first_output {tiny_output[0].item()} {hub_generate_ids[0][start_pos].item()}'
+      tiny_output = self.tiny_model(tinygrad.Tensor([[tiny_output[0]]]), start_pos)[0].data()
+      assert tiny_output[0] == hub_generate_ids[0][start_pos].item(), f'first_output {tiny_output[0]} {hub_generate_ids[0][start_pos].item()}'
 
 
 

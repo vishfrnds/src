@@ -2,7 +2,6 @@ import math
 from typing import Optional, Tuple
 
 from tinygrad.dtype import dtypes
-from tinygrad.ops import sint
 from tinygrad.tensor import Tensor
 
 

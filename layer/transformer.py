@@ -55,9 +55,13 @@ class Transformer:
     self.positional_embedding = PositionEmbedding(head_dim=head_dim, max_seq_len=self.config.max_seq_len, rope_theta=self.config.rope_theta, use_scaled_rope=self.config.use_scaled_rope)
 
   @TinyJit
-  def predict_one(self, tokens: Tensor, start_pos: Variable) -> Tensor:
-    assert tokens.shape[1] == 1, f"tokens shape {tokens.shape}"
-    return self.predict(tokens, start_pos, 1)
+  def predict_one(self, token: Tensor, start_pos: Variable) -> Tensor:
+    assert token.shape[1] == 1, f"token shape {token.shape}"
+    for _ in range(3):
+      token = token.cat(self.predict(token[:, -1:], start_pos, 1), dim=1)
+      # print('token', token.tolist())
+      start_pos += 1
+    return token[:, 1:].realize()
 
   def predict(self, tokens: Tensor, start_pos: Variable, seqlen: int) -> Tensor:
     h = self.tok_embeddings(tokens)
@@ -79,10 +83,12 @@ class Transformer:
   def __call__(self, tokens: Tensor, start_pos: int) -> Tensor:
     bsz, seqlen = tokens.shape
     self.initialize_cache_if_needed(bsz)
+    # print('seqlen', seqlen)
     if seqlen == 1:
       return self.predict_one(tokens, Variable("start_pos", 0, self.max_context).bind(start_pos))
     else:
       return self.predict(tokens, start_pos, seqlen)
+    # todo make sure all chache are inialized so jit at 0 works
     # todo make sure all chache are inialized so jit at 0 works
     # todo if seqlen varaible is costly to jit we should divide seqlen as sum of closest power of 2 so less kernels needs to be memorized
     # check if cache are inialized
