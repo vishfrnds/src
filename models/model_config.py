@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 from huggingface_hub import snapshot_download
+from tinygrad.engine.lazy import LazyBuffer
+from tinygrad.ops import Ops
 from tinygrad.runtime.ops_mcloud import MCloudDevice
 
 from src.layer.transformer import ActivationEnum, Transformer, TransformerConfig
@@ -50,9 +52,7 @@ class ModelConfig:
     # This creates a tensor clang for metadata of file
     weights = {k: v for file in Path(self.get_dir_path()).glob('*.safetensors') for k, v in safe_load(str(file)).items()}
     assert weights, f"No .safetensors files found in {self.get_dir_path()}"
-    weights = self.convert_from_huggingface(self.fix_data_type(weights),
-                                            self.config.n_heads, self.config.n_kv_heads, self.config.n_layers)
-
+    weights = self.convert_from_huggingface(weights, self.config.n_heads, self.config.n_kv_heads, self.config.n_layers)
     # for v in weights.values(): assert v.device.startswith("DISK"), f"Model weights are not on disk, found {v.device}"
     return weights
   
@@ -80,63 +80,35 @@ class ModelConfig:
   def convert_to_float16(self, v: Tensor) -> Tensor:
     return v.to('CLANG').bitcast(dtypes.uint16).cast(dtypes.uint32).mul(1 << 16).bitcast(dtypes.float32).cast(dtypes.float16).to(Device.DEFAULT)
 
-  def fix_data_type(self, weights: Dict[str, Tensor]) -> Dict[str, Tensor]:
-      # TODO: This should work with LLVM, but it doesn't, see test in cpu_half_test.py.
-      # check if gpu is available
-    # for k, v in weights.items():
-      # weights[k] = v.to("CLANG").float().realize()
-      # weights[k] = v.float().realize()
-      # if Device.DEFAULT == 'CLANG':
-      #   print('moving to cpu', k)
-      #   v = v.to("CLANG").realize()
-      #   if v.dtype == dtypes.bfloat16:
-      #     # v = v.llvm_bf16_cast(dtypes.float16).realize()
-          # weights[k] = v.to('CLANG').bitcast(dtypes.uint16).cast(dtypes.uint32).mul(1 << 16).bitcast(dtypes.float32).cast(dtypes.float16)
-
-    return weights
-
 
   def load_model(self) -> Transformer:
+    transformer = Transformer(self.config)
+    model_state_dict = get_state_dict(transformer)
     if Device.DEFAULT == 'MCLOUD':
       from typing import cast
       device = cast(MCloudDevice, Device['MCLOUD'])
-      print('VISH1332', device.loaded_models)
-      # model_weights = device.loaded_models[self.hub_name]
-      # print('VISH1332', model_weights)
-      return None
+      model_buffers = device.loaded_models[self.hub_name]
+      weights = {}
+      for server_buffer in model_buffers:
+        v = model_state_dict[server_buffer.name]
+        buffer = Buffer(device='MCLOUD', size=prod(v.shape), dtype=dtypes.float16, opaque=server_buffer.id)
+        empty_lazybuffer = LazyBuffer.metaop(Ops.EMPTY, v.shape, dtypes.float16, "MCLOUD")
+        empty_lazybuffer.buffer = buffer
+        del empty_lazybuffer.srcs
+        v.lazydata = empty_lazybuffer
     else:
       weights = self.get_model_weights_on_disk()
-    # if Device.DEFAULT == 'MCLOUD':
-    #   t = Tensor([1])
-    #   print('a', t)
-    #   t = t.realize()
-    #   print('b', t)
-    #   print('t', t.numpy())
-    #   print('weights in memory', len(MCloudDevice.server_memory))
-    #   for k, v in weights.items():
-    #     v = self.convert_to_float16(v)
-    #     hash = h(bytes(v.data()))
-    #     buffer = Buffer(device='MCLOUD', size=prod(v.shape), dtype=v.dtype)
-    #     buffer._buf = MCloudDevice.server_memory[hash]
-    #     empty_lazybuffer = LazyBuffer.metaop(Ops.EMPTY, v.shape, v.dtype, "MCLOUD")
-    #     empty_lazybuffer.buffer = buffer
-    #     del empty_lazybuffer.srcs
-    #     weights[k] = Tensor(empty_lazybuffer)
-    # else:
       for k, v in weights.items():
         weights[k] = self.convert_to_float16(v)
-
-    transformer = Transformer(self.config)
-    model_state_dict = get_state_dict(transformer)
-    model_keys = [k for k, v in model_state_dict.items() if v.requires_grad is not False]  # it has 3 states t, f, none
-    assert not (extra := [k for k in weights if k not in model_keys]), f"Extra keys: {extra}"
-    assert not (missing := [k for k in model_keys if k not in weights]), f"Missing keys: {missing}"
-    #load_state_dict(transformer, weights, strict=False, consume=True)
-    for k in model_keys:
-      if weights[k].shape != model_state_dict[k].shape:
-        raise ValueError(f'Shape mismatch in layer `{k}`: Expected shape {weights[k].shape}, but found {model_state_dict[k].shape} in state dict.')
-      model_state_dict[k].replace(weights[k].to(model_state_dict[k].device)).realize()
-      del weights[k]
+      model_keys = [k for k, v in model_state_dict.items() if v.requires_grad is not False]  # it has 3 states t, f, none
+      assert not (extra := [k for k in weights if k not in model_keys]), f"Extra keys: {extra}"
+      assert not (missing := [k for k in model_keys if k not in weights]), f"Missing keys: {missing}"
+      #load_state_dict(transformer, weights, strict=False, consume=True)
+      for k in model_keys:
+        if weights[k].shape != model_state_dict[k].shape:
+          raise ValueError(f'Shape mismatch in layer `{k}`: Expected shape {weights[k].shape}, but found {model_state_dict[k].shape} in state dict.')
+        model_state_dict[k].replace(weights[k].to(model_state_dict[k].device)).realize()
+        del weights[k]
     print('model loaded')
     return transformer
 
