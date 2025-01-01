@@ -3,7 +3,7 @@ import os
 import traceback
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict
 
 from huggingface_hub import snapshot_download
 from tinygrad.engine.lazy import LazyBuffer
@@ -14,9 +14,9 @@ from src.layer.transformer import ActivationEnum, Transformer, TransformerConfig
 from src.models.language_models import BaseTokenizer, LanguageModel
 from src.models.tokenizers_impl import LlamaTokenizer3_1, QwenTokenizer
 from tinygrad.device import Buffer, Device
-from tinygrad.dtype import DType, dtypes
+from tinygrad.dtype import dtypes
 from tinygrad.helpers import prod
-from tinygrad.nn.state import get_state_dict, load_state_dict, safe_load
+from tinygrad.nn.state import get_state_dict, safe_load
 from tinygrad.tensor import Tensor
 
 
@@ -55,10 +55,8 @@ class ModelConfig:
     weights = self.convert_from_huggingface(weights, self.config.n_heads, self.config.n_kv_heads, self.config.n_layers)
     # for v in weights.values(): assert v.device.startswith("DISK"), f"Model weights are not on disk, found {v.device}"
     return weights
-  
 
   def convert_from_huggingface(self, weights: Dict[str, Tensor], n_heads: int, n_kv_heads: int, n_layers: int) -> Dict[str, Tensor]:
-
     keymap = {
       "model.embed_tokens.weight": "tok_embeddings.weight",
       **{f"model.layers.{l}.input_layernorm.weight": f"layers.{l}.attention_norm.weight" for l in range(n_layers)},
@@ -80,7 +78,6 @@ class ModelConfig:
   def convert_to_float16(self, v: Tensor) -> Tensor:
     return v.to('CLANG').bitcast(dtypes.uint16).cast(dtypes.uint32).mul(1 << 16).bitcast(dtypes.float32).cast(dtypes.float16).to(Device.DEFAULT)
 
-
   def load_model(self) -> Transformer:
     transformer = Transformer(self.config)
     model_state_dict = get_state_dict(transformer)
@@ -88,22 +85,20 @@ class ModelConfig:
       from typing import cast
       device = cast(MCloudDevice, Device['MCLOUD'])
       model_buffers = device.loaded_models[self.hub_name]
-      weights = {}
       for server_buffer in model_buffers:
         v = model_state_dict[server_buffer.name]
-        buffer = Buffer(device='MCLOUD', size=prod(v.shape), dtype=dtypes.float16, opaque=server_buffer.id)
+        buffer = Buffer(device='MCLOUD', size=int(prod(v.shape)), dtype=dtypes.float16, opaque=server_buffer.id)
         empty_lazybuffer = LazyBuffer.metaop(Ops.EMPTY, v.shape, dtypes.float16, "MCLOUD")
         empty_lazybuffer.buffer = buffer
         del empty_lazybuffer.srcs
         v.lazydata = empty_lazybuffer
     else:
       weights = self.get_model_weights_on_disk()
-      for k, v in weights.items():
-        weights[k] = self.convert_to_float16(v)
-      model_keys = [k for k, v in model_state_dict.items() if v.requires_grad is not False]  # it has 3 states t, f, none
+      weights = {k: self.convert_to_float16(v) for k, v in weights.items()}
+      model_keys = [k for k, v in model_state_dict.items() if v.requires_grad is not False]
       assert not (extra := [k for k in weights if k not in model_keys]), f"Extra keys: {extra}"
       assert not (missing := [k for k in model_keys if k not in weights]), f"Missing keys: {missing}"
-      #load_state_dict(transformer, weights, strict=False, consume=True)
+      # load_state_dict(transformer, weights, strict=False, consume=True)
       for k in model_keys:
         if weights[k].shape != model_state_dict[k].shape:
           raise ValueError(f'Shape mismatch in layer `{k}`: Expected shape {weights[k].shape}, but found {model_state_dict[k].shape} in state dict.')
@@ -196,6 +191,7 @@ if __name__ == '__main__':
   try:
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, choices=[e.name for e in ModelEnum], default='QWEN_0_5B')
+    parser.add_argument('--backend', type=str, choices=["torch", "hub", "tiny"], default='hub')
     args = parser.parse_args()
     model_enum = ModelEnum[args.model]
     print(f"Using model: {model_enum}")

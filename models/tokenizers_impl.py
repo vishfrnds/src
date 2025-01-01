@@ -17,6 +17,27 @@ from transformers import AutoTokenizer
 
 from src.models.language_models import BaseTokenizer
 
+class UnicodeTokenizer(BaseTokenizer):
+  def __init__(self) -> None:
+    self.vocab_size = 0
+    self.id_to_idx:Dict[int, int] = {}
+
+  def input_to_tokens(self, inp: str) -> List[int]:
+    out = []
+    for c in inp:
+      out.append(self._get_or_create_idx(ord(c)))
+    return out
+
+  def token_to_string(self, token: int) -> Union[str, None]:
+    return chr(token)
+
+  def _get_or_create_idx(self, id: int) -> int:
+    if id not in self.id_to_idx:
+      self.id_to_idx[id] = self.vocab_size
+      self.vocab_size += 1
+      return self.vocab_size - 1
+    return self.id_to_idx[id]
+
 
 class QwenTokenizer(BaseTokenizer):
 

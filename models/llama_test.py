@@ -6,7 +6,7 @@ from transformers.models.qwen2.modeling_qwen2 import apply_rotary_pos_emb
 
 import tinygrad
 import tinygrad.device
-from src.models.hub.model_config import ModelEnum
+from src.models.model_config import ModelEnum
 from src.models.llama import Llama
 from src.layer.position_embedding import PositionEmbedding
 from tinygrad.dtype import dtypes
